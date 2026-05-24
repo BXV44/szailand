@@ -1,43 +1,54 @@
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
-
-const TOKEN = process.env.TOKEN;
-if (!TOKEN) {
-  console.log("❌ TOKEN manquant");
-  process.exit(1);
-}
+const { Client, GatewayIntentBits, Collection, ActivityType } = require('discord.js');
+const fs   = require('fs');
+const path = require('path');
+require('dotenv').config();
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildMessageReactions,
+  ],
 });
 
-client.commands = new Collection();
+client.commands      = new Collection();
+client.slashCommands = new Collection();
+client.PREFIX        = '+';
+client.OWNERS        = ['1222217828770516992', '1371573736054194356'];
+client.INVITE        = 'discord.gg/szailand';
 
-const fs = require("fs");
-const path = require("path");
-
-// load commands
-for (const folder of fs.readdirSync("./commands")) {
-  for (const file of fs.readdirSync("./commands/" + folder)) {
-    const cmd = require("./commands/" + folder + "/" + file);
+// ── Charger les commandes ──────────────────────────────────────────────────────
+function loadCommand(cmd) {
+  if (!cmd || typeof cmd !== 'object') return;
+  if (cmd.name) {
     client.commands.set(cmd.name, cmd);
+    if (cmd.aliases) cmd.aliases.forEach(a => client.commands.set(a, cmd));
+  }
+  if (cmd.data) client.slashCommands.set(cmd.data.name, cmd);
+}
+
+const cmdFolders = fs.readdirSync(path.join(__dirname, 'commands'));
+for (const folder of cmdFolders) {
+  const files = fs.readdirSync(path.join(__dirname, 'commands', folder)).filter(f => f.endsWith('.js'));
+  for (const file of files) {
+    const mod = require(path.join(__dirname, 'commands', folder, file));
+    if (mod.name || mod.data) loadCommand(mod);
+    else for (const key of Object.keys(mod)) loadCommand(mod[key]);
   }
 }
 
-client.on("messageCreate", (message) => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith("!")) return;
+console.log(`[BOT] 📦 ${client.commands.size} commandes | ${client.slashCommands.size} slash`);
 
-  const args = message.content.slice(1).split(/ +/);
-  const cmdName = args.shift();
+// ── Charger les events ────────────────────────────────────────────────────────
+const evtFiles = fs.readdirSync(path.join(__dirname, 'events')).filter(f => f.endsWith('.js'));
+for (const file of evtFiles) {
+  const evt = require(path.join(__dirname, 'events', file));
+  if (evt.once) client.once(evt.name, (...a) => evt.execute(...a, client));
+  else client.on(evt.name, (...a) => evt.execute(...a, client));
+}
 
-  const cmd = client.commands.get(cmdName);
-  if (!cmd) return;
-
-  cmd.run(client, message, args);
-});
-
-client.login(TOKEN);
+client.login(process.env.TOKEN);
